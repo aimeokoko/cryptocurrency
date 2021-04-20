@@ -1,0 +1,153 @@
+---
+title: "Cryptocurrency Indicators"
+author: "Aimé OKOKO"
+date: "`r paste('Yahoo finance data retrieved on', Sys.Date())`"
+runtime: shiny
+output: 
+  html_document: 
+    keep_md: yes
+    # theme: darkly
+---
+
+This application uses updated Yahoo finance data to compute the Relative Strength Index of a set of Cryptocurrencies. 
+Relative Strength Index is computed by the formula : 
+
+\begin{equation}
+
+RSI = 100 - [\frac{100}{1 + 
+\frac{Average \ gain}{Average \ loss}
+} ]
+
+\end{equation}
+
+The user can choose the cryptocurrency of interest and see how the price and the RSI evolve over time. He can also drag on the plot to choose a period of interest.
+
+The table below shows today's RSI value.
+
+**Ps : This app is just for illustrative purpose**
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F, eval = T)
+```
+
+
+```{r libraries}
+library(dygraphs)
+library(dplyr)
+library(TTR)
+library(quantmod)
+library(stringr)
+library(purrr)
+```
+
+## Cryptocurrency
+
+```{r}
+options("getSymbols.warning4.0"=FALSE)
+symb <- c("BTC-USD", "ETH-USD")
+crypt_nam <- str_sub(symb, 1, -5)
+
+data_list <- lapply(symb, function(x){ 
+  getSymbols(x)
+  get(x)})
+```
+
+
+```{r calcul_indicateurs, cache=T}
+
+TA <- matrix(data = 0, nrow = 1, ncol = 1) #TA for technical analysis 
+TA <- as.data.frame(TA)
+names(TA) <- "rsi"
+
+mes_crypt <- list()
+
+for (i in seq_along(data_list)){
+  data <- data_list[[i]]
+  data <- na.omit(data) #Suppression de valeurs manquantes
+  names(data) <- c("open","high","low","close",
+                   "volume","adjusted")
+  
+    data$rsi <- RSI(Cl(data))
+    
+    bband <- BBands(HLC(data))
+  
+  data <- cbind(data, bband)
+  mes_crypt[[i]] <- data
+  TA[i,] <- data[nrow(data), 7]
+
+}
+
+names(mes_crypt) <- crypt_nam #Nommage de la liste
+
+TA <- sapply(TA, function(x) round(x, 2)) %>% 
+  as.data.frame()
+TA$name <- crypt_nam
+TA$order <- 1:nrow(TA)
+```
+
+
+```{r data, cache=T}
+# Relative Strength Index (30-70)
+f_rsi <- function(){
+  renderDygraph({
+  ma_crypto <- input$coin
+
+data <- mes_crypt[[ma_crypto]]
+  
+  dygraph(data[,"rsi"], main = "RSI", group = "stock",
+        height=100,width=700) %>%
+  dyLegend(show="follow") %>%
+  dyLimit(limit = 80,
+          label = "Overbought",
+          labelLoc = "left",
+          color = "red",
+          strokePattern = "dotted") %>%
+  dyLimit(limit = 40,
+          label = "Oversold",
+          labelLoc = "left",
+          color = "red",
+          strokePattern = "dotted")
+    })
+  }
+
+```
+
+
+```{r indicateurs, echo=F, cache=F}
+
+
+selectInput("coin", "Choose coin", choices = crypt_nam,
+            selected = "BTC")
+
+renderDygraph({
+ma_crypto <- input$coin
+
+data <- mes_crypt[[ma_crypto]]
+candle <- OHLC(data)
+
+ dygraph(candle, main = ma_crypto, group = "stock", width = 650, height = 300) %>%
+  dyCandlestick() %>%
+  dyLegend(show = "follow")
+
+})
+#RSI
+f_rsi()
+
+```
+```{r table}
+
+#Table d'indiacateurs et de cryptos pour la journée
+
+#Indicateurs
+
+DT::datatable(TA[,c("order", "name", "rsi")],
+              caption = "Today's RSI",
+              rownames = F,
+              filter = 'top',
+              width = 1000,
+              options = list(
+  pageLength = 100
+))
+```
+
+
